@@ -39,19 +39,20 @@ gqueue.process(async(job: any, done) => {
 
     if( job.data.snFirst === "code_test") {
         try{
-            returnResult = await spawn('python', [job.data.wrapper, job.data.answer, job.data.file, job.data.code]);
+            returnResult = await spawn('python3', [job.data.wrapper, job.data.answer, job.data.file, job.data.code]);
         } catch(ex) {
             done(ex.stderr.toString(), null);
         }
     } else {
         try{
-            returnResult = await spawn('python', [job.data.wrapper, job.data.answer, job.data.file, job.data.code, job.data.snFirst, job.data.snSecond]);
+            returnResult = await spawn('python3', [job.data.wrapper, job.data.answer, job.data.file, job.data.code, job.data.snFirst, job.data.snSecond]);
         } catch(ex) {
             done(ex.stderr.toString(), null);
         }
     }
     done(null, returnResult);
     console.log("gqueue.process end");
+
 });
 
 gqueue.on('completed', (job, result) => {
@@ -80,7 +81,7 @@ app.use(express.json());
 app.use(cors());
 app.use(morgan("tiny"));
 
-app.post("/aifactory", async (req, res) => {
+app.post("/Grading", async (req, res) => {
 
     try {
         await uploadFile(req, res);
@@ -89,22 +90,36 @@ app.post("/aifactory", async (req, res) => {
         }
         console.log(req.file);
 
+        const paquery = {
+            text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
+            values: [req.body.key]
+        };
+        //let query: string = "SELECT task_id FROM t_partcpt_agre WHERE key_value = '" + req.body.key + "'"; // = '" + f"{flask.request.values['user_id']}'"
+        const rows = await client.query(paquery);
+        console.log(rows);
+        let taskid: string = rows[0].task_id;
+
         // taskid 에 맞는 wrapper.py 파일이름을 db에서 읽어오기 
-        // db에서 answer 파일이름 가져오기 , code(채점코드) 이름도 가져오기 
-        let wrapper: string = "test.py"; 
-        let answer: string = "";
-        let code: string = "";
+        // db에서 answer 파일이름 가져오기 , code(채점코드) 이름도 가져오기
+        const tquery = {
+            text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
+            values: [req.body.key]
+        };
+
+        let wrapper: string = "wrapper_copy.py"; 
+        let answer: string = "answer";
+        let code: string = "code.py";
         
-        let wrapperPath: string = path.join(String(process.env.SRC_ROOT), req.body.taskId, wrapper);
-        let answerPath: string = path.join(String(process.env.SRC_ROOT), req.body.taskId, answer);
-        let codePath: string = path.join(String(process.env.SRC_ROOT), req.body.taskId, code);
+        let wrapperPath: string = path.join(String(process.env.SRC_ROOT), taskid, wrapper);
+        let answerPath: string = path.join(String(process.env.SRC_ROOT), taskid, answer);
+        let codePath: string = path.join(String(process.env.SRC_ROOT), taskid, code);
 
         let jobdata = {
-            wrapper : wrapperPath,
+            //wrapper : wrapperPath,
             answer : answerPath,
             file : req.file.path,
             code : codePath,
-            task : req.body.taskId,
+            task : taskid,
             snFirst : req.body.snFirst,
             snSecond : req.body.snSecond,
         }
