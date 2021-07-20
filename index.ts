@@ -110,7 +110,7 @@ app.post("/Grading", async (req, res) => {
         let answer: string = "answer";
         let code: string = "code.py";
         
-        let wrapperPath: string = path.join(String(process.env.SRC_ROOT), taskid, wrapper);
+        //let wrapperPath: string = path.join(String(process.env.SRC_ROOT), taskid, wrapper);
         let answerPath: string = path.join(String(process.env.SRC_ROOT), taskid, answer);
         let codePath: string = path.join(String(process.env.SRC_ROOT), taskid, code);
 
@@ -123,6 +123,7 @@ app.post("/Grading", async (req, res) => {
             snFirst : req.body.snFirst,
             snSecond : req.body.snSecond,
         }
+
         console.log(jobdata);
         // to do : 결과가 정상이면 wrapper 스크립트안에서 결과파일을 지운다  
         // 오류날 경우 결과파일(제출)을 failed 로 옮긴다
