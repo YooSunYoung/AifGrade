@@ -23,8 +23,8 @@ pr = pr.to_numpy().astype(int).reshape(-1)
 # predict_data = pd.read_csv(sys.argv[3]).to_numpy()[:,1:].astype(int).reshape(-1, 1)  # 참가자가 제출한 결과 파일을 .csv 테이블 형태로 불러옵니다.
 # label_data = pd.read_csv("./answer.csv").to_numpy()[:,1:].astype(int).reshape(-1, 1)   # 정답파일을 .csv 테이블 형태로 불러옵니다. 
                                                                                                 # 정답 파일 위치는 직접 입력하지 말고 비워두시면 됩니다.​
-print(gt)
-print(pr)
+#print(gt)
+#print(pr)
 
 # 스코어 산출
 score = accuracy_score(gt, pr)  # 위에서 가져온 함수에 불러온 정답 테이블 및 결과 테이블을 입력하여 스코어를 계산합니다.
