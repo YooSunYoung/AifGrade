@@ -81,8 +81,8 @@ app.use(express.json());
 app.use(cors());
 app.use(morgan("tiny"));
 
-app.post("/Grading", async (req, res) => {
 
+app.post("/Grading", async (req, res) => {
     try {
         await uploadFile(req, res);
         if (req.file == undefined) {
@@ -95,9 +95,9 @@ app.post("/Grading", async (req, res) => {
             values: [req.body.key]
         };
         //let query: string = "SELECT task_id FROM t_partcpt_agre WHERE key_value = '" + req.body.key + "'"; // = '" + f"{flask.request.values['user_id']}'"
-        const rows = await client.query(paquery);
-        console.log(rows);
-        let taskid: string = rows[0].task_id;
+        const results = await client.query(paquery);
+        console.log(results);
+        let taskid: string = results.rows[0].task_id;
 
         // taskid 에 맞는 wrapper.py 파일이름을 db에서 읽어오기 
         // db에서 answer 파일이름 가져오기 , code(채점코드) 이름도 가져오기
@@ -106,7 +106,7 @@ app.post("/Grading", async (req, res) => {
             values: [req.body.key]
         };
 
-        let wrapper: string = "wrapper_copy.py"; 
+        let wrapper: string = "wrapper.py"; 
         let answer: string = "answer";
         let code: string = "code.py";
         
@@ -180,6 +180,7 @@ app.post("/createCalculator", async (req, res) => {
     
     try{
         let codetest = process.env["CODE_TEST"];
+        // 파일 업로드 : code, answer ( 폴더 ? : to do)
         // task id 
         // code file
         // answer file 
