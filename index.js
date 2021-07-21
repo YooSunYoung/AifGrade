@@ -634,10 +634,8 @@ app.post("/uploadAnswer", function (req, res) { return __awaiter(void 0, void 0,
             case 9:
                 _a.sent();
                 if (!(ext == '.zip')) return [3 /*break*/, 12];
-                // unzip 
                 return [4 /*yield*/, extractzip(newpath, { dir: dir })];
             case 10:
-                // unzip 
                 _a.sent();
                 return [4 /*yield*/, promises_1.default.unlink(newpath)];
             case 11:
