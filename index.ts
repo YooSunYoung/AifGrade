@@ -57,7 +57,7 @@ gqueue.process(async(job: any, done) => {
                 var lines = result.split(os.EOL);
                 resultfilter = lines.filter(line => line.includes('score:'));
                 const splits = resultfilter[0].split(':');
-                pbScore = Math.round(parseFloat(splits[1]));
+                pbScore = parseFloat(splits[1]);
                 
                 if( isNaN(pbScore) ) {
                     errMessage = 'Error: nan returned as score';
@@ -65,7 +65,7 @@ gqueue.process(async(job: any, done) => {
 
                 if( resultfilter.length > 1) {
                     const splitssec = resultfilter[1].split(':');
-                    prScore = Math.round(parseFloat(splitssec[1]));
+                    prScore = parseFloat(splitssec[1]);
                     if( isNaN(prScore) ) {
                         errMessage = 'Error: nan returned as score';
                     }
@@ -104,7 +104,7 @@ gqueue.process(async(job: any, done) => {
                 var lines = result.split(os.EOL);
                 resultfilter = lines.filter(line => line.includes('score:'));
                 const splits = resultfilter[0].split(':');
-                pbScore = Math.round(parseFloat(splits[1]));
+                pbScore = parseFloat(splits[1]);
                 
                 if( isNaN(pbScore) ) {
                     errMessage = 'Error: nan returned as score';
@@ -112,7 +112,7 @@ gqueue.process(async(job: any, done) => {
 
                 if( resultfilter.length > 1) {
                     const splitssec = resultfilter[1].split(':');
-                    prScore = Math.round(parseFloat(splitssec[1]));
+                    prScore = parseFloat(splitssec[1]);
                     if( isNaN(prScore) ) {
                         errMessage = 'Error: nan returned as score';
                     }

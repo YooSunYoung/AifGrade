@@ -102,13 +102,13 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
                     lines = result.split(os_1.default.EOL);
                     resultfilter = lines.filter(function (line) { return line.includes('score:'); });
                     splits = resultfilter[0].split(':');
-                    pbScore = Math.round(parseFloat(splits[1]));
+                    pbScore = parseFloat(splits[1]);
                     if (isNaN(pbScore)) {
                         errMessage = 'Error: nan returned as score';
                     }
                     if (resultfilter.length > 1) {
                         splitssec = resultfilter[1].split(':');
-                        prScore = Math.round(parseFloat(splitssec[1]));
+                        prScore = parseFloat(splitssec[1]);
                         if (isNaN(prScore)) {
                             errMessage = 'Error: nan returned as score';
                         }
@@ -161,13 +161,13 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
                     lines = result.split(os_1.default.EOL);
                     resultfilter = lines.filter(function (line) { return line.includes('score:'); });
                     splits = resultfilter[0].split(':');
-                    pbScore = Math.round(parseFloat(splits[1]));
+                    pbScore = parseFloat(splits[1]);
                     if (isNaN(pbScore)) {
                         errMessage = 'Error: nan returned as score';
                     }
                     if (resultfilter.length > 1) {
                         splitssec = resultfilter[1].split(':');
-                        prScore = Math.round(parseFloat(splitssec[1]));
+                        prScore = parseFloat(splitssec[1]);
                         if (isNaN(prScore)) {
                             errMessage = 'Error: nan returned as score';
                         }
