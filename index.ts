@@ -18,11 +18,11 @@ var randomstring = require("randomstring");
 
 const PORT = process.env.PORT;
 const client = new Client({
-    user: process.env.USER,
-    password: process.env.PWD,
-    host: process.env.HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PWD,
+    host: process.env.DB_HOST,
     port: parseInt(String(process.env.DB_PORT)),
-    database: process.env.DB
+    database: process.env.DB_NAME
 });
 
 const gqueue = new Queue('gradeQueue', {
