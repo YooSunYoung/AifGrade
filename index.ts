@@ -8,17 +8,20 @@ import morgan from "morgan";
 var cors = require('cors');
 import { Client } from 'pg';
 import uploadFile from "./multerUtil";
+import upload from "./multerUtilUpload";
 import Queue from 'bull'; 
 import { doesNotMatch } from "assert/strict";
-const spawn = require('await-spawn')
+import os from 'os';
+const extractzip = require('extract-zip');
+const spawn = require('await-spawn');
 var randomstring = require("randomstring");
 
-const PORT = process.env.PORT || 3045;
+const PORT = process.env.PORT;
 const client = new Client({
     user: process.env.USER,
     password: process.env.PWD,
     host: process.env.HOST,
-    port: parseInt(String(process.env.PORT)),
+    port: parseInt(String(process.env.DB_PORT)),
     database: process.env.DB
 });
 
@@ -34,25 +37,117 @@ const gqueue = new Queue('gradeQueue', {
 });
 
 gqueue.process(async(job: any, done) => {
-    let codetest = process.env["CODE_TEST"];
     let returnResult: any;
+    let errMessage: string = "";
+    let pbScore:number = 0;
+    let prScore:number = 0;
+    let resultfilter: string[] = [];
 
-    if( job.data.snFirst === "code_test") {
+    if( String(job.data.snFirst) == "code_test") {
         try{
-            returnResult = await spawn('python3', [job.data.wrapper, job.data.answer, job.data.file, job.data.code]);
+            let targetfile: string = path.join(String(job.data.file), 'answer.csv');
+            returnResult = await spawn('python', [job.data.code, job.data.answer, targetfile]);
+        } catch(ex) {
+            errMessage = ex.stderr.toString();
+        }
+        try
+        {
+            if( errMessage == ""){
+                let result:string = returnResult.toString();
+                var lines = result.split(os.EOL);
+                resultfilter = lines.filter(line => line.includes('score:'));
+                const splits = resultfilter[0].split(':');
+                pbScore = Math.round(parseFloat(splits[1]));
+                
+                if( isNaN(pbScore) ) {
+                    errMessage = 'Error: nan returned as score';
+                }
+
+                if( resultfilter.length > 1) {
+                    const splitssec = resultfilter[1].split(':');
+                    prScore = Math.round(parseFloat(splitssec[1]));
+                    if( isNaN(prScore) ) {
+                        errMessage = 'Error: nan returned as score';
+                    }
+                }
+            }
+            if( errMessage == '')
+            {
+                const query = {
+                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
+                    values: ["success", String(pbScore), parseInt(job.data.task)]
+                };
+                const resultquery = await client.query(query);
+            } else {
+                let newpath: string = path.join(String(process.env.ERROR_DIR), path.basename(job.data.jobPath));
+                await fs.rename(job.data.jobPath, newpath);
+                const queryerror = {
+                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
+                    values: ['fail', errMessage, parseInt(job.data.task)]
+                };
+                const resultquerypr = await client.query(queryerror);
+            }
+            done(null, "END");
         } catch(ex) {
             done(ex.stderr.toString(), null);
         }
     } else {
         try{
-            returnResult = await spawn('python3', [job.data.wrapper, job.data.answer, job.data.file, job.data.code, job.data.snFirst, job.data.snSecond]);
+            returnResult = await spawn('python', [job.data.code, job.data.answer, job.data.file]);
+        } catch(ex) {
+            errMessage = ex.stderr.toString();
+        }
+
+        try {
+            if( errMessage == ""){
+                let result:string = returnResult.toString();
+                var lines = result.split(os.EOL);
+                resultfilter = lines.filter(line => line.includes('score:'));
+                const splits = resultfilter[0].split(':');
+                pbScore = Math.round(parseFloat(splits[1]));
+                
+                if( isNaN(pbScore) ) {
+                    errMessage = 'Error: nan returned as score';
+                }
+
+                if( resultfilter.length > 1) {
+                    const splitssec = resultfilter[1].split(':');
+                    prScore = Math.round(parseFloat(splitssec[1]));
+                    if( isNaN(prScore) ) {
+                        errMessage = 'Error: nan returned as score';
+                    }
+                }
+            }
+            if( errMessage == '')
+            {
+                const query = {
+                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
+                    values: [pbScore, path.basename(job.data.file), null, String(job.data.snFirst)]
+                };
+                const resultquery = await client.query(query);
+                if( resultfilter.length > 1) {
+                    const querypr = {
+                        text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
+                        values: [prScore, path.basename(job.data.file), null, String(job.data.snSecond)]
+                    };
+                    const resultquerypr = await client.query(querypr);
+                }
+                await fs.unlink(job.data.jobPath);
+            } else {
+                let newpath: string = path.join(String(process.env.ERROR_DIR), path.basename(job.data.jobPath));
+                await fs.rename(job.data.jobPath, newpath);
+                const queryerror = {
+                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
+                    values: [null, path.basename(job.data.file), errMessage, String(job.data.snFirst)]
+                };
+                const resultquerypr = await client.query(queryerror);
+            }
+            done(null, "END");
         } catch(ex) {
             done(ex.stderr.toString(), null);
         }
     }
-    done(null, returnResult);
-    console.log("gqueue.process end");
-
+    
 });
 
 gqueue.on('completed', (job, result) => {
@@ -66,12 +161,6 @@ gqueue.on('failed', (job, result) => {
 
 
 async function addJob(data: any): Promise<number> {
-
-    let current: number = await gqueue.getActiveCount();
-    let limit : number= parseInt(String(process.env["QUEUE_MAX_LIMIT"]));
-    if(current >= limit) {
-        return 1;
-    }
     await gqueue.add(data);
     return 0;
 }
@@ -81,12 +170,11 @@ app.use(express.json());
 app.use(cors());
 app.use(morgan("tiny"));
 
-
-app.post("/Grading", async (req, res) => {
+app.post("/grading", async (req, res) => {
     try {
         await uploadFile(req, res);
         if (req.file == undefined) {
-            return res.status(400).send("false");
+            return res.status(400).send("file upload error");
         }
         console.log(req.file);
 
@@ -94,116 +182,299 @@ app.post("/Grading", async (req, res) => {
             text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
             values: [req.body.key]
         };
-        //let query: string = "SELECT task_id FROM t_partcpt_agre WHERE key_value = '" + req.body.key + "'"; // = '" + f"{flask.request.values['user_id']}'"
         const results = await client.query(paquery);
-        console.log(results);
+        if( results.rows.length == 0){
+            return res.status(400).send("non-existent key");
+        }
+
         let taskid: string = results.rows[0].task_id;
-
-        // taskid 에 맞는 wrapper.py 파일이름을 db에서 읽어오기 
-        // db에서 answer 파일이름 가져오기 , code(채점코드) 이름도 가져오기
-        const tquery = {
-            text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
-            values: [req.body.key]
-        };
-
-        let wrapper: string = "wrapper.py"; 
         let answer: string = "answer";
         let code: string = "code.py";
         
-        //let wrapperPath: string = path.join(String(process.env.SRC_ROOT), taskid, wrapper);
-        let answerPath: string = path.join(String(process.env.SRC_ROOT), taskid, answer);
-        let codePath: string = path.join(String(process.env.SRC_ROOT), taskid, code);
-
+        let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
+        let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+        let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
         let jobdata = {
-            //wrapper : wrapperPath,
             answer : answerPath,
             file : req.file.path,
             code : codePath,
             task : taskid,
             snFirst : req.body.snFirst,
             snSecond : req.body.snSecond,
+            jobPath : jobPath
         }
+        var json = JSON.stringify(jobdata);
+        await fs.writeFile(jobPath, json, 'utf8');
 
-        console.log(jobdata);
-        // to do : 결과가 정상이면 wrapper 스크립트안에서 결과파일을 지운다  
-        // 오류날 경우 결과파일(제출)을 failed 로 옮긴다
         const result = await addJob(jobdata);
         if( result == 0) {
-            res.status(200).send({
-                "ct" : "0",
-                "result":"success",
-            });
+            res.status(200).send("success");
+        }else{
+            res.status(400).send("job error");
         }
-        res.status(200).send({
-            "ct" : "1",
-            "result":"Exceeding the maximum number",
-        });
     } catch (ex) {
-        res.status(200).send({
-            "ct" : "1",
-            "result":"failed",
-        });    
+        res.status(400).send(ex.message);
     }
-    
 });
 
 app.post("/submit", async (req, res) => {
     
     try{
         await uploadFile(req, res);
-        // key를 통해 taskid, userid 
-        // 제출 db > row 생성 
-        // python 실행 
+        if (req.file == undefined) {
+            return res.status(400).send("file upload error");
+        }
+        const paquery = {
+            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            values: [req.body.key]
+        };
+        const results = await client.query(paquery);
+        if( results.rows.length == 0){
+            return res.status(400).send("non-existent key");
+        }
+        let taskid: string = results.rows[0].task_id;
+        let userid: string = results.rows[0].user_id;
+
+        const queryfirst = {
+            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
+            values: [taskid, 1, '0000', userid, req.body.model, '0000', userid]
+        };
+
+        const resultfirst = await client.query(queryfirst);
+        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+
+        const querysecond = {
+            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
+            values: [taskid, 1, '0001', userid, req.body.model, '0001', userid]
+        };
+
+        const resultsecond = await client.query(querysecond);
+        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+
+        let answer: string = "answer";
+        let code: string = "code.py";
+        
+        let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
+        let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+        let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
         let jobdata = {
-            wrapper : wrapperPath,
             answer : answerPath,
             file : req.file.path,
             code : codePath,
-            task : req.body.taskId,
-            snFirst : req.body.snFirst,
-            snSecond : req.body.snSecond,
+            task : taskid,
+            snFirst : snFirst,
+            snSecond : snSecond,
+            jobPath : jobPath
         }
-        //console.log(jobdata);
-        // to do : 결과가 정상이면 wrapper 스크립트안에서 결과파일을 지운다  
-        // 오류날 경우 결과파일(제출)을 failed 로 옮긴다
+        var json = JSON.stringify(jobdata);
+        await fs.writeFile(jobPath, json, 'utf8');
         const result = await addJob(jobdata);
         if( result == 0) {
-            res.status(200).send({"ct" : 0, "result":"success"});
-        }else {
-            res.status(200).send({"ct" : 1, "result":"Exceeding the maximum number"});
+            res.status(200).send("success");
+        }else{
+            res.status(400).send("job error");
         }
     } catch(ex) {
-        res.status(200).send({"ct" : 1, "result":"failed"}); 
+        res.status(400).send(ex.message); 
     }
 });
 
-app.post("/createCalculator", async (req, res) => {
-    
+app.post("/submissionTime", async (req, res) => {
     try{
-        let codetest = process.env["CODE_TEST"];
-        // 파일 업로드 : code, answer ( 폴더 ? : to do)
-        // task id 
-        // code file
-        // answer file 
-        let answerPath: string = path.join(String(process.env.SRC_ROOT), req.body.taskId, req.body.answerFilename);
-        let codePath: string = path.join(String(process.env.SRC_ROOT), req.body.taskId, req.body.calculateFilename);
-
-        let jobdata = {
-            wrapper : codetest,
-            answer : answerPath,
-            file : answerPath,
-            code : codePath,
-            task : req.body.taskId
+        let dt = new Date();
+        let submissionTime = dt.toISOString().replace("T", " ").replace("Z", "");
+        const paquery = {
+            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            values: [req.body.key]
+        };
+        const results = await client.query(paquery);
+        if( results.rows.length == 0){
+            return res.status(400).send("non-existent key");
         }
-        console.log(jobdata);
+        let taskid: string = results.rows[0].task_id;
+        let userid: string = results.rows[0].user_id;
+
+        const taskquery = {
+            text: 'SELECT begin_dttm, end_dttm FROM t_task WHERE task_id = $1',
+            values: [taskid]
+        };
+        const resulttask = await client.query(taskquery);
+        if( resulttask.rows.length == 0){
+            return res.status(400).send("non-existent taskid");
+        }
+
+        let begindt: Date = new Date(resulttask.rows[0].begin_dttm);
+        let enddt: Date = new Date(resulttask.rows[0].end_dttm);
+
+        if( dt > enddt){
+            return res.status(400).send("submission timeout");
+        }
+
+        const queryfirst = {
+            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
+            values: [taskid, 1, '0000', userid, '0000', userid, submissionTime]
+        };
+
+        const resultfirst = await client.query(queryfirst);
+        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+
+        const querySecond = {
+            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
+            values: [taskid, 1, '0001', userid, '0001', userid, submissionTime]
+        };
+
+        const resultsecond = await client.query(querySecond);
+        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+
+        res.status(200).send("success");
+    }catch(ex) {
+        res.status(400).send(ex.message); 
+    }
+});
+
+app.post("/submitEx", async (req, res) => {
+    try{
+        await uploadFile(req, res);
+        const paquery = {
+            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            values: [req.body.key]
+        };
+        const results = await client.query(paquery);
+        if( results.rows.length == 0){
+            return res.status(400).send("non-existent key");
+        }
+        let taskid: string = results.rows[0].task_id;
+        let userid: string = results.rows[0].user_id;
+
+        const queryfirst = {
+            text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
+            values: [taskid, userid, '0000']
+        };
+
+        const resultfirst = await client.query(queryfirst);
+        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+
+        const querySecond = {
+            text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
+            values: [taskid, userid, '0001']
+        };
+
+        const resultsecond = await client.query(querySecond);
+        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+
+        if( req.body.error != "none") {
+            const queryerror = {
+                text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, ERR_MESSAGE = $2 WHERE ADHRNC_SN = $3',
+                values: [null, req.body.error, snFirst]
+            };
+            const resultquerypr = await client.query(queryerror);
+            return res.status(200).send("success");
+        }else{
+            if (req.file == undefined) {
+                return res.status(400).send("file upload error");
+            }
+            let answer: string = "answer";
+            let code: string = "code.py";
+            
+            let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
+            let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+            let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
+            let jobdata = {
+                answer : answerPath,
+                file : req.file.path,
+                code : codePath,
+                task : taskid,
+                snFirst : snFirst,
+                snSecond : snSecond,
+                jobPath : jobPath
+            }
+            var json = JSON.stringify(jobdata);
+            await fs.writeFile(jobPath, json, 'utf8');
+            console.log(jobdata);
+
+            const result = await addJob(jobdata);
+            if( result == 0) {
+                res.status(200).send("success");
+            }else{
+                res.status(400).send("job error");
+            }       
+        } 
+    }catch(ex) {
+        res.status(400).send(ex.message); 
+    }
+});
+
+app.post("/test", async (req, res) => {
+    try{
+        let answer: string = "answer";
+        let code: string = "code.py";
+        
+        let answerPath: string = path.join(String(process.env.TASK_ROOT), String(req.body.taskId), answer);
+        let codePath: string = path.join(String(process.env.TASK_ROOT), String(req.body.taskId), code);
+        let jobdata = {
+            answer : answerPath,
+            code : codePath,
+            file : answerPath,
+            task : req.body.taskId,
+            snFirst: "code_test",
+        }
         const result = await addJob(jobdata);
         if( result == 0) {
-            res.status(200).send({"ct" : 0, "result":"success"});
+            res.status(200).send("success");
         }else {
-            res.status(200).send({"ct" : 1, "result":"Exceeding the maximum number"});
+            res.status(400).send("job error");
         }
     } catch(ex) {
-        res.status(200).send({"ct" : 1, "result":"failed"}); 
+        res.status(400).send(ex.mesage); 
+    }
+});
+
+app.post("/uploadCode", async (req, res) => {
+    try{
+        await upload(req, res);
+        if (req.file == undefined) {
+            return res.status(400).send("file upload error");
+        }
+        let dir = path.join(String(process.env.TASK_ROOT), String(req.body.taskId));
+        if( !fssync.existsSync(dir)) {
+            await fs.mkdir(dir);
+        }
+        let newpath: string = path.join(dir, 'code.py');
+        await fs.rename(req.file.path, newpath);
+        res.status(200).send("success");
+    } catch(ex) {
+        res.status(400).send(ex.message); 
+    }
+});
+
+app.post("/uploadAnswer", async (req, res) => {
+    try{
+        await upload(req, res);
+        if (req.file == undefined) {
+            return res.status(400).send("file upload error");
+        }
+        let dir = path.join(String(process.env.TASK_ROOT), String(req.body.taskId), 'answer');
+        if( !fssync.existsSync(dir)) {
+            await fs.mkdir(dir, { recursive: true });
+        }
+        else{
+            // rm -rf /path/to/directory/*
+            const files = await fs.readdir(dir);
+            for (const file of files) {
+                await fs.unlink(path.join(dir, file));
+            }
+        }
+        let ext:string = path.extname(req.file.path);
+        let newfilename:string = "answer" + ext;
+        let newpath: string = path.join(dir, newfilename);
+        await fs.rename(req.file.path, newpath);
+        if(ext == '.zip') {
+            await extractzip(newpath, { dir: dir });
+            await fs.unlink(newpath);
+        }
+        res.status(200).send("success");
+    } catch(ex) {
+        res.status(400).send(ex.message); 
     }
 });
 

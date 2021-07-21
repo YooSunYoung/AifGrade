@@ -10,7 +10,7 @@ var count_1 = require("./count");
 var maxSize = 100 * 1024 * 1024;
 var storage = multer_1.default.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, process.env.UPLOAD_DIR);
+        cb(null, process.env.SUBMISSION_DIR);
     },
     filename: function (req, file, cb) {
         console.log(file.originalname);

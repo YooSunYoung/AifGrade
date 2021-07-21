@@ -5,7 +5,7 @@ import { getCount } from './count';
 const maxSize = 100 * 1024 * 1024;
 let storage = multer.diskStorage({
     destination: (req: any, file: any, cb:any) => {
-        cb(null, process.env.UPLOAD_DIR);
+        cb(null, process.env.SUBMISSION_DIR);
     },
     filename: (req: any, file:any, cb:any) => {
         console.log(file.originalname);
