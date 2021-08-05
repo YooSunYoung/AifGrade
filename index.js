@@ -57,11 +57,11 @@ var spawn = require('await-spawn');
 var randomstring = require("randomstring");
 var PORT = process.env.PORT;
 var client = new pg_1.Client({
-    user: process.env.USER,
-    password: process.env.PWD,
-    host: process.env.HOST,
+    user: process.env.DB_USER,
+    password: process.env.DB_PWD,
+    host: process.env.DB_HOST,
     port: parseInt(String(process.env.DB_PORT)),
-    database: process.env.DB
+    database: process.env.DB_NAME
 });
 var gqueue = new bull_1.default('gradeQueue', {
     limiter: {
@@ -74,10 +74,11 @@ var gqueue = new bull_1.default('gradeQueue', {
     },
 });
 gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, function () {
-    var returnResult, errMessage, pbScore, prScore, resultfilter, targetfile, ex_1, result, lines, splits, splitssec, query, resultquery, newpath, queryerror, resultquerypr, ex_2, ex_3, result, lines, splits, splitssec, query, resultquery, querypr, resultquerypr, newpath, queryerror, resultquerypr, ex_4;
+    var pythonexe, returnResult, errMessage, pbScore, prScore, resultfilter, targetfile, ex_1, result, lines, splits, splitssec, query, resultquery, newpath, queryerror, resultquerypr, ex_2, ex_3, result, lines, splits, splitssec, query, resultquery, querypr, resultquerypr, newpath, queryerror, resultquerypr, ex_4;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
+                pythonexe = String(process.env.PYTHON_EXE);
                 errMessage = "";
                 pbScore = 0;
                 prScore = 0;
@@ -87,7 +88,7 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
             case 1:
                 _a.trys.push([1, 3, , 4]);
                 targetfile = path_1.default.join(String(job.data.file), 'answer.csv');
-                return [4 /*yield*/, spawn('python', [job.data.code, job.data.answer, targetfile])];
+                return [4 /*yield*/, spawn(pythonexe, [job.data.code, job.data.answer, targetfile])];
             case 2:
                 returnResult = _a.sent();
                 return [3 /*break*/, 4];
@@ -146,7 +147,7 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
             case 11: return [3 /*break*/, 25];
             case 12:
                 _a.trys.push([12, 14, , 15]);
-                return [4 /*yield*/, spawn('python', [job.data.code, job.data.answer, job.data.file])];
+                return [4 /*yield*/, spawn(pythonexe, [job.data.code, job.data.answer, job.data.file])];
             case 13:
                 returnResult = _a.sent();
                 return [3 /*break*/, 15];

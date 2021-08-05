@@ -37,6 +37,7 @@ const gqueue = new Queue('gradeQueue', {
 });
 
 gqueue.process(async(job: any, done) => {
+    let pythonexe : string = String(process.env.PYTHON_EXE);
     let returnResult: any;
     let errMessage: string = "";
     let pbScore:number = 0;
@@ -46,7 +47,7 @@ gqueue.process(async(job: any, done) => {
     if( String(job.data.snFirst) == "code_test") {
         try{
             let targetfile: string = path.join(String(job.data.file), 'answer.csv');
-            returnResult = await spawn('python', [job.data.code, job.data.answer, targetfile]);
+            returnResult = await spawn(pythonexe, [job.data.code, job.data.answer, targetfile]);
         } catch(ex) {
             errMessage = ex.stderr.toString();
         }
@@ -93,7 +94,7 @@ gqueue.process(async(job: any, done) => {
         }
     } else {
         try{
-            returnResult = await spawn('python', [job.data.code, job.data.answer, job.data.file]);
+            returnResult = await spawn(pythonexe, [job.data.code, job.data.answer, job.data.file]);
         } catch(ex) {
             errMessage = ex.stderr.toString();
         }
