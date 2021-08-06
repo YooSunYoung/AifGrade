@@ -12,6 +12,8 @@ import upload from "./multerUtilUpload";
 import Queue from 'bull'; 
 import { doesNotMatch } from "assert/strict";
 import os from 'os';
+import moment from 'moment';
+
 const extractzip = require('extract-zip');
 const spawn = require('await-spawn');
 var randomstring = require("randomstring");
@@ -160,6 +162,66 @@ gqueue.on('failed', (job, result) => {
     console.log(`Job ${job.id} failed with result ${result}`);
 })
 
+const checkDayLimit = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
+    let localstr :string = ct.format("yyyy-MM-DD") + " 00:00:00";
+    let st = moment(localstr, "yyyy-MM-DD HH:mm:ss");
+    let et = moment(st).clone().add(Number(limit.daylimit.day), 'days');
+
+    let utcst = st.utc();
+    let utcet = et.utc();
+
+    let utcststr = utcst.format('yyyy-MM-DD HH:mm:ss');
+    let utcetstr = utcet.format('yyyy-MM-DD HH:mm:ss');
+    const dayquery = {
+        text: "SELECT count(*) FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and result_sbmisn_mthd_code = '0000' and regist_dttm BETWEEN $3 AND $4",
+        values: [taskid, userid, utcststr, utcetstr]
+    };
+    const results = await client.query(dayquery);
+    if( Number(results.rows[0].count) > Number(limit.daylimit.count)){
+        return 1;
+    }
+    return 0;
+};
+
+const checkResubmit = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
+    const lastquery = {
+        text: "SELECT regist_dttm FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and result_sbmisn_mthd_code = '0000' ORDER BY adhrnc_sn DESC LIMIT 1",
+        values: [taskid, userid]
+    };
+    const lastresults = await client.query(lastquery);
+    let registstr: string = lastresults.rows[0].regist_dttm;
+    let refdt = moment(registstr, "yyyy-MM-DD HH:mm:ss");
+    let nowutcdt = moment(ct.utc().format("yyyy-MM-DD HH:mm:ss"), "yyyy-MM-DD HH:mm:ss");
+    let diff = moment.duration(nowutcdt.diff(refdt)).asMinutes();
+    if( diff < Number(limit.resubmit.min)){
+        return 2;
+    }
+    return 0;
+};
+
+const checkRule = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
+    let localtime = ct;
+    let ret: number = 0;
+    switch( limit.type) {
+        case 0:
+            break;
+        case 1: 
+            ret = await checkDayLimit(limit, dbc, localtime, taskid, userid);
+            break;
+        case 2: 
+            ret = await checkResubmit(limit, dbc, localtime, taskid, userid);
+            break;
+        case 3: 
+            ret = await checkDayLimit(limit, dbc, localtime, taskid, userid);
+            if( ret > 0) return ret;
+            ret = await checkResubmit(limit, dbc, localtime, taskid, userid);
+            break;
+        default:
+            break;
+    }
+
+    return ret;
+};
 
 async function addJob(data: any): Promise<number> {
     await gqueue.add(data);
@@ -233,9 +295,32 @@ app.post("/submit", async (req, res) => {
         if( results.rows.length == 0){
             return res.status(400).send("non-existent key");
         }
+        let dt = new Date();
+        let ct = moment(dt);
         let taskid: string = results.rows[0].task_id;
         let userid: string = results.rows[0].user_id;
 
+        const taskquery = {
+            text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
+            values: [taskid]
+        };
+        const resulttask = await client.query(taskquery);
+        if( resulttask.rows.length == 0){
+            return res.status(400).send("non-existent taskid");
+        }
+
+        let begindt: Date = new Date(resulttask.rows[0].begin_dttm);
+        let enddt: Date = new Date(resulttask.rows[0].end_dttm);
+        let submitLmit: any = JSON.parse(resulttask.rows[0].submit_limit);
+        if( dt > enddt){
+            return res.status(400).send("submission timeout");
+        }
+
+        let ret: number = await checkRule(submitLmit, client, ct, taskid, userid);
+        if( ret > 0) {
+            return res.status(400).send("violation of the rules:" + ret);
+        }
+        
         const queryfirst = {
             text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
             values: [taskid, 1, '0000', userid, req.body.model, '0000', userid]
@@ -283,6 +368,7 @@ app.post("/submit", async (req, res) => {
 app.post("/submissionTime", async (req, res) => {
     try{
         let dt = new Date();
+        let ct = moment(dt);
         let submissionTime = dt.toISOString().replace("T", " ").replace("Z", "");
         const paquery = {
             text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
@@ -296,7 +382,7 @@ app.post("/submissionTime", async (req, res) => {
         let userid: string = results.rows[0].user_id;
 
         const taskquery = {
-            text: 'SELECT begin_dttm, end_dttm FROM t_task WHERE task_id = $1',
+            text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
             values: [taskid]
         };
         const resulttask = await client.query(taskquery);
@@ -306,9 +392,14 @@ app.post("/submissionTime", async (req, res) => {
 
         let begindt: Date = new Date(resulttask.rows[0].begin_dttm);
         let enddt: Date = new Date(resulttask.rows[0].end_dttm);
-
+        let submitLmit: any = JSON.parse(resulttask.rows[0].submit_limit);
         if( dt > enddt){
             return res.status(400).send("submission timeout");
+        }
+
+        let ret: number = await checkRule(submitLmit, client, ct, taskid, userid);
+        if( ret > 0) {
+            return res.status(400).send("violation of the rules:" + ret);
         }
 
         const queryfirst = {
@@ -329,6 +420,7 @@ app.post("/submissionTime", async (req, res) => {
 
         res.status(200).send("success");
     }catch(ex) {
+        console.log("step error");
         res.status(400).send(ex.message); 
     }
 });

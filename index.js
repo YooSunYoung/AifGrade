@@ -52,6 +52,7 @@ var multerUtil_1 = __importDefault(require("./multerUtil"));
 var multerUtilUpload_1 = __importDefault(require("./multerUtilUpload"));
 var bull_1 = __importDefault(require("bull"));
 var os_1 = __importDefault(require("os"));
+var moment_1 = __importDefault(require("moment"));
 var extractzip = require('extract-zip');
 var spawn = require('await-spawn');
 var randomstring = require("randomstring");
@@ -225,6 +226,52 @@ gqueue.on('completed', function (job, result) {
 gqueue.on('failed', function (job, result) {
     console.log("Job " + job.id + " failed with result " + result);
 });
+var checkRule = function (limit, dbc, dt, taskid, userid) { return __awaiter(void 0, void 0, void 0, function () {
+    var localtime, ret, _a, ststr, st, et, utcst, utcet, utcststr, utcetstr, dayquery, results;
+    return __generator(this, function (_b) {
+        switch (_b.label) {
+            case 0:
+                localtime = dt.local();
+                ret = 0;
+                _a = limit.type;
+                switch (_a) {
+                    case 0: return [3 /*break*/, 1];
+                    case 1: return [3 /*break*/, 2];
+                    case 2: return [3 /*break*/, 4];
+                    case 3: return [3 /*break*/, 5];
+                }
+                return [3 /*break*/, 6];
+            case 1: return [3 /*break*/, 6];
+            case 2:
+                ststr = localtime.year.toString() + "-" + localtime.month.toString() + "-" + localtime.day.toString() + " 00:00:00";
+                st = moment_1.default(ststr, "yyyy-MM-dd HH:mm:ss");
+                et = moment_1.default(st).clone().add(1, 'days');
+                utcst = st.utc();
+                utcet = et.utc();
+                utcststr = utcst.format('yyyy-MM-dd HH:mm:ss');
+                utcetstr = utcet.format('yyyy-MM-dd HH:mm:ss');
+                dayquery = {
+                    text: 'SELECT count(*) FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and regist_dttm BETWEEN $3 AND $4',
+                    values: [taskid, userid, utcststr, utcetstr]
+                };
+                return [4 /*yield*/, client.query(dayquery)];
+            case 3:
+                results = _b.sent();
+                if (Number(results.fields[0]) > limit.daylimit.count) {
+                    ret = 1;
+                }
+                else {
+                    ret = 0;
+                }
+                return [3 /*break*/, 6];
+            case 4: // resubmit
+            return [3 /*break*/, 6];
+            case 5: // daylimt + resubmit
+            return [3 /*break*/, 6];
+            case 6: return [2 /*return*/, ret];
+        }
+    });
+}); };
 function addJob(data) {
     return __awaiter(this, void 0, void 0, function () {
         return __generator(this, function (_a) {
@@ -378,12 +425,13 @@ app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 
     });
 }); });
 app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var dt, submissionTime, paquery, results, taskid, userid, taskquery, resulttask, begindt, enddt, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, ex_7;
+    var dt, ct, submissionTime, paquery, results, taskid, userid, taskquery, resulttask, begindt, enddt, submitLmit, ret, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, ex_7;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 5, , 6]);
+                _a.trys.push([0, 6, , 7]);
                 dt = new Date();
+                ct = moment_1.default();
                 submissionTime = dt.toISOString().replace("T", " ").replace("Z", "");
                 paquery = {
                     text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
@@ -398,7 +446,7 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
                 taskid = results.rows[0].task_id;
                 userid = results.rows[0].user_id;
                 taskquery = {
-                    text: 'SELECT begin_dttm, end_dttm FROM t_task WHERE task_id = $1',
+                    text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
                     values: [taskid]
                 };
                 return [4 /*yield*/, client.query(taskquery)];
@@ -409,15 +457,19 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
                 }
                 begindt = new Date(resulttask.rows[0].begin_dttm);
                 enddt = new Date(resulttask.rows[0].end_dttm);
+                submitLmit = JSON.parse(resulttask.rows[0].submit_limit);
                 if (dt > enddt) {
                     return [2 /*return*/, res.status(400).send("submission timeout")];
                 }
+                return [4 /*yield*/, checkRule(submitLmit, client, ct, taskid, userid)];
+            case 3:
+                ret = _a.sent();
                 queryfirst = {
                     text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
                     values: [taskid, 1, '0000', userid, '0000', userid, submissionTime]
                 };
                 return [4 /*yield*/, client.query(queryfirst)];
-            case 3:
+            case 4:
                 resultfirst = _a.sent();
                 snFirst = resultfirst.rows[0].adhrnc_sn;
                 querySecond = {
@@ -425,16 +477,16 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
                     values: [taskid, 1, '0001', userid, '0001', userid, submissionTime]
                 };
                 return [4 /*yield*/, client.query(querySecond)];
-            case 4:
+            case 5:
                 resultsecond = _a.sent();
                 snSecond = resultsecond.rows[0].adhrnc_sn;
                 res.status(200).send("success");
-                return [3 /*break*/, 6];
-            case 5:
+                return [3 /*break*/, 7];
+            case 6:
                 ex_7 = _a.sent();
                 res.status(400).send(ex_7.message);
-                return [3 /*break*/, 6];
-            case 6: return [2 /*return*/];
+                return [3 /*break*/, 7];
+            case 7: return [2 /*return*/];
         }
     });
 }); });
