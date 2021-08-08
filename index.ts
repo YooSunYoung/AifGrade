@@ -121,27 +121,34 @@ gqueue.process(async(job: any, done) => {
                     }
                 }
             }
+            let errojson : any = { type: 0, message : ""};
+            let errjosnstr = JSON.stringify(errojson);
+
             if( errMessage == '')
             {
                 const query = {
                     text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [pbScore, path.basename(job.data.file), null, String(job.data.snFirst)]
+                    values: [pbScore, path.basename(job.data.file), errjosnstr, String(job.data.snFirst)]
                 };
                 const resultquery = await client.query(query);
                 if( resultfilter.length > 1) {
                     const querypr = {
                         text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                        values: [prScore, path.basename(job.data.file), null, String(job.data.snSecond)]
+                        values: [prScore, path.basename(job.data.file), errjosnstr, String(job.data.snSecond)]
                     };
                     const resultquerypr = await client.query(querypr);
                 }
                 await fs.unlink(job.data.jobPath);
             } else {
+                errojson.type = 2;
+                errojson.message = errMessage;
+                errjosnstr = JSON.stringify(errojson);
+
                 let newpath: string = path.join(String(process.env.ERROR_DIR), path.basename(job.data.jobPath));
                 await fs.rename(job.data.jobPath, newpath);
                 const queryerror = {
                     text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [null, path.basename(job.data.file), errMessage, String(job.data.snFirst)]
+                    values: [null, path.basename(job.data.file), errjosnstr, String(job.data.snFirst)]
                 };
                 const resultquerypr = await client.query(queryerror);
             }
@@ -456,9 +463,11 @@ app.post("/submitEx", async (req, res) => {
         let snSecond: number = resultsecond.rows[0].adhrnc_sn;
 
         if( req.body.error != "none") {
+            let errojson : any = { type: 1, message : req.body.error};
+            let errjosnstr = JSON.stringify(errojson);
             const queryerror = {
                 text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, ERR_MESSAGE = $2 WHERE ADHRNC_SN = $3',
-                values: [null, req.body.error, snFirst]
+                values: [null, errjosnstr, snFirst]
             };
             const resultquerypr = await client.query(queryerror);
             return res.status(200).send("success");
