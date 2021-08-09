@@ -464,15 +464,13 @@ app.post("/submitEx", async (req, res) => {
 
         const resultsecond = await client.query(querySecond);
         let snSecond: number = resultsecond.rows[0].adhrnc_sn;
-
-        
-
+   
         if( req.body.error != "none") {
             //let errojson : any = { type: 1, message : req.body.error};
             //let errjosnstr = JSON.stringify(errojson);
             const queryerror = {
                 text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, ERR_MESSAGE = $2 WHERE ADHRNC_SN = $3',
-                values: [null, "", snFirst]
+                values: [null, req.body.error, snFirst]
             };
             const resultquerypr = await client.query(queryerror);
             return res.status(200).send("success");
