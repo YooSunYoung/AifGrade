@@ -435,6 +435,7 @@ app.post("/submissionTime", async (req, res) => {
 app.post("/submitEx", async (req, res) => {
     try{
 
+        await uploadFile(req, res);
         console.log(req.body);
                 
         const paquery = {
@@ -476,7 +477,7 @@ app.post("/submitEx", async (req, res) => {
             const resultquerypr = await client.query(queryerror);
             return res.status(200).send("success");
         }else{
-            await uploadFile(req, res);
+            
             if (req.file == undefined) {
                 return res.status(400).send("file upload error");
             }
