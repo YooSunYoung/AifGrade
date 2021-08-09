@@ -406,7 +406,22 @@ app.post("/submissionTime", async (req, res) => {
 
         let ret: number = await checkRule(submitLmit, client, ct, taskid, userid);
         if( ret > 0) {
-            return res.status(400).send("violation of the rules:" + ret);
+            let reterror: string = "error";
+            switch( ret ){
+                case 1:
+                    reterror = "You have exceeded the number of submissions in the specified period";
+                    break;
+                case 2:
+                    reterror = "Submission interval time exceeded";
+                    break;
+                case 3:
+                    reterror = "violation of rules";
+                    break;
+                default:
+                    break;
+            }
+
+            return res.status(400).send(reterror);
         }
 
         const queryfirst = {
