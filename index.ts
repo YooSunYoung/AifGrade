@@ -464,7 +464,7 @@ app.post("/submitEx", async (req, res) => {
         const resultsecond = await client.query(querySecond);
         let snSecond: number = resultsecond.rows[0].adhrnc_sn;
 
-        await uploadFile(req, res);
+        
 
         if( req.body.error != "none") {
             //let errojson : any = { type: 1, message : req.body.error};
@@ -476,6 +476,7 @@ app.post("/submitEx", async (req, res) => {
             const resultquerypr = await client.query(queryerror);
             return res.status(200).send("success");
         }else{
+            await uploadFile(req, res);
             if (req.file == undefined) {
                 return res.status(400).send("file upload error");
             }
