@@ -434,6 +434,9 @@ app.post("/submissionTime", async (req, res) => {
 
 app.post("/submitEx", async (req, res) => {
     try{
+
+        console.log(req.body);
+        
         await uploadFile(req, res);
         const paquery = {
             text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
@@ -527,7 +530,7 @@ app.post("/test", async (req, res) => {
             res.status(400).send("job error");
         }
     } catch(ex) {
-        res.status(400).send(ex.mesage); 
+        res.status(400).send(ex.message); 
     }
 });
 
