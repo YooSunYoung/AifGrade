@@ -52,7 +52,8 @@ var multerUtil_1 = __importDefault(require("./multerUtil"));
 var multerUtilUpload_1 = __importDefault(require("./multerUtilUpload"));
 var bull_1 = __importDefault(require("bull"));
 var os_1 = __importDefault(require("os"));
-var moment_1 = __importDefault(require("moment"));
+var moment_timezone_1 = __importDefault(require("moment-timezone"));
+//import moment from 'moment';
 var extractzip = require('extract-zip');
 var spawn = require('await-spawn');
 var randomstring = require("randomstring");
@@ -88,7 +89,7 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
                 _a.label = 1;
             case 1:
                 _a.trys.push([1, 3, , 4]);
-                targetfile = path_1.default.join(String(job.data.file), 'answer.csv');
+                targetfile = job.data.answer;
                 return [4 /*yield*/, spawn(pythonexe, [job.data.code, job.data.answer, targetfile])];
             case 2:
                 returnResult = _a.sent();
@@ -118,8 +119,8 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
                 }
                 if (!(errMessage == '')) return [3 /*break*/, 6];
                 query = {
-                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
-                    values: ["success", String(pbScore), parseInt(job.data.task)]
+                    text: 'UPDATE code_test_result SET status = $1, error = $2 WHERE task_id = $3',
+                    values: [0, String(pbScore), parseInt(job.data.task)]
                 };
                 return [4 /*yield*/, client.query(query)];
             case 5:
@@ -131,8 +132,8 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
             case 7:
                 _a.sent();
                 queryerror = {
-                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
-                    values: ['fail', errMessage, parseInt(job.data.task)]
+                    text: 'UPDATE code_test_result SET status = $1, error = $2 WHERE task_id = $3',
+                    values: [1, errMessage, parseInt(job.data.task)]
                 };
                 return [4 /*yield*/, client.query(queryerror)];
             case 8:
@@ -177,16 +178,16 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
                 }
                 if (!(errMessage == '')) return [3 /*break*/, 20];
                 query = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [pbScore, path_1.default.basename(job.data.file), null, String(job.data.snFirst)]
+                    text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                    values: [pbScore, path_1.default.basename(job.data.file), errMessage, Number(job.data.snFirst)]
                 };
                 return [4 /*yield*/, client.query(query)];
             case 16:
                 resultquery = _a.sent();
                 if (!(resultfilter.length > 1)) return [3 /*break*/, 18];
                 querypr = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [prScore, path_1.default.basename(job.data.file), null, String(job.data.snSecond)]
+                    text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                    values: [prScore, path_1.default.basename(job.data.file), errMessage, Number(job.data.snSecond)]
                 };
                 return [4 /*yield*/, client.query(querypr)];
             case 17:
@@ -202,8 +203,8 @@ gqueue.process(function (job, done) { return __awaiter(void 0, void 0, void 0, f
             case 21:
                 _a.sent();
                 queryerror = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [null, path_1.default.basename(job.data.file), errMessage, String(job.data.snFirst)]
+                    text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                    values: [null, path_1.default.basename(job.data.file), errMessage, Number(job.data.snFirst)]
                 };
                 return [4 /*yield*/, client.query(queryerror)];
             case 22:
@@ -226,49 +227,94 @@ gqueue.on('completed', function (job, result) {
 gqueue.on('failed', function (job, result) {
     console.log("Job " + job.id + " failed with result " + result);
 });
-var checkRule = function (limit, dbc, dt, taskid, userid) { return __awaiter(void 0, void 0, void 0, function () {
-    var localtime, ret, _a, ststr, st, et, utcst, utcet, utcststr, utcetstr, dayquery, results;
+var checkDayLimit = function (rules, dbc, ct, taskid, userid) { return __awaiter(void 0, void 0, void 0, function () {
+    var localct, localstr, st, et, utcst, utcet, utcststr, utcetstr, dayquery, results;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                localct = ct.clone().tz("Asia/Seoul");
+                console.log("localct:" + localct.format("yyyy-MM-DD HH:mm:ss"));
+                localstr = localct.format("yyyy-MM-DD") + " 00:00:00";
+                console.log("localstr:" + localstr);
+                st = moment_timezone_1.default(localstr, "yyyy-MM-DD HH:mm:ss");
+                et = moment_timezone_1.default(st).clone().add(Number(rules.daylimit.day), 'days');
+                utcst = st.utc();
+                utcet = et.utc();
+                utcststr = utcst.format('yyyy-MM-DD HH:mm:ss');
+                utcetstr = utcet.format('yyyy-MM-DD HH:mm:ss');
+                console.log("utcststr:" + utcststr);
+                console.log("utcetstr:" + utcetstr);
+                dayquery = {
+                    text: "SELECT count(*) FROM task_submission where task_id = $1 and user_id = $2 and method_code = 0 and score is not null and error = '' and registration_date BETWEEN $3 AND $4",
+                    values: [taskid, userid, utcststr, utcetstr]
+                };
+                return [4 /*yield*/, client.query(dayquery)];
+            case 1:
+                results = _a.sent();
+                if (Number(results.rows[0].count) > Number(rules.daylimit.count)) {
+                    return [2 /*return*/, 1];
+                }
+                return [2 /*return*/, 0];
+        }
+    });
+}); };
+var checkResubmit = function (rules, dbc, ct, taskid, userid) { return __awaiter(void 0, void 0, void 0, function () {
+    var lastquery, lastresults, refdt, diff;
+    return __generator(this, function (_a) {
+        switch (_a.label) {
+            case 0:
+                lastquery = {
+                    text: "SELECT registration_date FROM task_submission where task_id = $1 and user_id = $2 and method_code = 0 and score is not null and error = '' ORDER BY id DESC LIMIT 1",
+                    values: [taskid, userid]
+                };
+                return [4 /*yield*/, client.query(lastquery)];
+            case 1:
+                lastresults = _a.sent();
+                refdt = moment_timezone_1.default(lastresults.rows[0].registration_date).utc();
+                console.log("ct:" + ct.format("yyyy-MM-DD HH:mm:ss"));
+                console.log("refdt:" + refdt.format("yyyy-MM-DD HH:mm:ss"));
+                diff = moment_timezone_1.default.duration(ct.diff(refdt)).asMinutes();
+                if (diff < Number(rules.resubmit.min)) {
+                    return [2 /*return*/, 2];
+                }
+                return [2 /*return*/, 0];
+        }
+    });
+}); };
+var checkRule = function (rules, dbc, ct, taskid, userid) { return __awaiter(void 0, void 0, void 0, function () {
+    var ret, _a;
     return __generator(this, function (_b) {
         switch (_b.label) {
             case 0:
-                localtime = dt.local();
                 ret = 0;
-                _a = limit.type;
+                _a = rules.type;
                 switch (_a) {
                     case 0: return [3 /*break*/, 1];
                     case 1: return [3 /*break*/, 2];
                     case 2: return [3 /*break*/, 4];
-                    case 3: return [3 /*break*/, 5];
+                    case 3: return [3 /*break*/, 6];
                 }
-                return [3 /*break*/, 6];
-            case 1: return [3 /*break*/, 6];
-            case 2:
-                ststr = localtime.year.toString() + "-" + localtime.month.toString() + "-" + localtime.day.toString() + " 00:00:00";
-                st = moment_1.default(ststr, "yyyy-MM-dd HH:mm:ss");
-                et = moment_1.default(st).clone().add(1, 'days');
-                utcst = st.utc();
-                utcet = et.utc();
-                utcststr = utcst.format('yyyy-MM-dd HH:mm:ss');
-                utcetstr = utcet.format('yyyy-MM-dd HH:mm:ss');
-                dayquery = {
-                    text: 'SELECT count(*) FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and regist_dttm BETWEEN $3 AND $4',
-                    values: [taskid, userid, utcststr, utcetstr]
-                };
-                return [4 /*yield*/, client.query(dayquery)];
+                return [3 /*break*/, 9];
+            case 1: return [3 /*break*/, 10];
+            case 2: return [4 /*yield*/, checkDayLimit(rules, dbc, ct, taskid, userid)];
             case 3:
-                results = _b.sent();
-                if (Number(results.fields[0]) > limit.daylimit.count) {
-                    ret = 1;
-                }
-                else {
-                    ret = 0;
-                }
-                return [3 /*break*/, 6];
-            case 4: // resubmit
-            return [3 /*break*/, 6];
-            case 5: // daylimt + resubmit
-            return [3 /*break*/, 6];
-            case 6: return [2 /*return*/, ret];
+                ret = _b.sent();
+                return [3 /*break*/, 10];
+            case 4: return [4 /*yield*/, checkResubmit(rules, dbc, ct, taskid, userid)];
+            case 5:
+                ret = _b.sent();
+                return [3 /*break*/, 10];
+            case 6: return [4 /*yield*/, checkDayLimit(rules, dbc, ct, taskid, userid)];
+            case 7:
+                ret = _b.sent();
+                if (ret > 0)
+                    return [2 /*return*/, ret];
+                return [4 /*yield*/, checkResubmit(rules, dbc, ct, taskid, userid)];
+            case 8:
+                ret = _b.sent();
+                return [3 /*break*/, 10];
+            case 9: return [3 /*break*/, 10];
+            case 10: return [2 /*return*/, ret];
         }
     });
 }); };
@@ -289,11 +335,11 @@ app.use(express_1.default.json());
 app.use(cors());
 app.use(morgan_1.default("tiny"));
 app.post("/grading", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var paquery, results, taskid, answer, code, answerPath, codePath, jobPath, jobdata, json, result, ex_5;
+    var paquery, results, taskid, answer, code, taskpath, answerfile, answerPath, files, codePath, jobPath, jobdata, json, result, ex_5;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 5, , 6]);
+                _a.trys.push([0, 6, , 7]);
                 return [4 /*yield*/, multerUtil_1.default(req, res)];
             case 1:
                 _a.sent();
@@ -302,7 +348,7 @@ app.post("/grading", function (req, res) { return __awaiter(void 0, void 0, void
                 }
                 console.log(req.file);
                 paquery = {
-                    text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
+                    text: 'SELECT task_id FROM task_user WHERE key = $1',
                     values: [req.body.key]
                 };
                 return [4 /*yield*/, client.query(paquery)];
@@ -314,11 +360,25 @@ app.post("/grading", function (req, res) { return __awaiter(void 0, void 0, void
                 taskid = results.rows[0].task_id;
                 answer = "answer";
                 code = "code.py";
-                answerPath = path_1.default.join(String(process.env.TASK_ROOT), taskid, answer);
-                codePath = path_1.default.join(String(process.env.TASK_ROOT), taskid, code);
+                taskpath = path_1.default.join(String(process.env.TASK_ROOT), taskid.toString());
+                answerfile = void 0;
+                answerPath = path_1.default.join(taskpath, answer);
+                return [4 /*yield*/, promises_1.default.readdir(answerPath)];
+            case 3:
+                files = _a.sent();
+                if (files.length > 1) {
+                    answerfile = answerPath; // zip
+                }
+                else if (files.length == 1) {
+                    answerfile = path_1.default.join(answerPath, files[0]); // single file 
+                }
+                else {
+                    return [2 /*return*/, res.status(400).send("no answer file")];
+                }
+                codePath = path_1.default.join(taskpath, code);
                 jobPath = path_1.default.join(String(process.env.JOB_DIR), path_1.default.basename(req.file.path + ".json"));
                 jobdata = {
-                    answer: answerPath,
+                    answer: answerfile,
                     file: req.file.path,
                     code: codePath,
                     task: taskid,
@@ -328,10 +388,10 @@ app.post("/grading", function (req, res) { return __awaiter(void 0, void 0, void
                 };
                 json = JSON.stringify(jobdata);
                 return [4 /*yield*/, promises_1.default.writeFile(jobPath, json, 'utf8')];
-            case 3:
+            case 4:
                 _a.sent();
                 return [4 /*yield*/, addJob(jobdata)];
-            case 4:
+            case 5:
                 result = _a.sent();
                 if (result == 0) {
                     res.status(200).send("success");
@@ -339,21 +399,21 @@ app.post("/grading", function (req, res) { return __awaiter(void 0, void 0, void
                 else {
                     res.status(400).send("job error");
                 }
-                return [3 /*break*/, 6];
-            case 5:
+                return [3 /*break*/, 7];
+            case 6:
                 ex_5 = _a.sent();
                 res.status(400).send(ex_5.message);
-                return [3 /*break*/, 6];
-            case 6: return [2 /*return*/];
+                return [3 /*break*/, 7];
+            case 7: return [2 /*return*/];
         }
     });
 }); });
 app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var paquery, results, taskid, userid, queryfirst, resultfirst, snFirst, querysecond, resultsecond, snSecond, answer, code, answerPath, codePath, jobPath, jobdata, json, result, ex_6;
+    var paquery, results, ct, taskid, userid, taskquery, resulttask, startdt, enddt, rules, ret, queryfirst, resultfirst, snFirst, querysecond, resultsecond, snSecond, answer, code, taskpath, answerfile, answerPath, files, codePath, jobPath, jobdata, json, result, ex_6;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 7, , 8]);
+                _a.trys.push([0, 10, , 11]);
                 return [4 /*yield*/, multerUtil_1.default(req, res)];
             case 1:
                 _a.sent();
@@ -361,7 +421,7 @@ app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 
                     return [2 /*return*/, res.status(400).send("file upload error")];
                 }
                 paquery = {
-                    text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+                    text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
                     values: [req.body.key]
                 };
                 return [4 /*yield*/, client.query(paquery)];
@@ -370,31 +430,68 @@ app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 
                 if (results.rows.length == 0) {
                     return [2 /*return*/, res.status(400).send("non-existent key")];
                 }
+                ct = moment_timezone_1.default().utc();
                 taskid = results.rows[0].task_id;
                 userid = results.rows[0].user_id;
+                taskquery = {
+                    text: 'SELECT start_date, end_date, rules FROM task WHERE id = $1',
+                    values: [taskid]
+                };
+                return [4 /*yield*/, client.query(taskquery)];
+            case 3:
+                resulttask = _a.sent();
+                if (resulttask.rows.length == 0) {
+                    return [2 /*return*/, res.status(400).send("non-existent taskid")];
+                }
+                startdt = resulttask.rows[0].start_date;
+                enddt = moment_timezone_1.default(resulttask.rows[0].end_date).utc();
+                rules = JSON.parse(resulttask.rows[0].rules);
+                if (ct > enddt) {
+                    return [2 /*return*/, res.status(400).send("submission timeout")];
+                }
+                return [4 /*yield*/, checkRule(rules, client, ct, taskid, userid)];
+            case 4:
+                ret = _a.sent();
+                if (ret > 0) {
+                    return [2 /*return*/, res.status(400).send("violation of the rules:" + ret)];
+                }
                 queryfirst = {
-                    text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-                    values: [taskid, 1, '0000', userid, req.body.model, '0000', userid]
+                    text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+                    values: [taskid, 1, 0, userid, req.body.model, 0]
                 };
                 return [4 /*yield*/, client.query(queryfirst)];
-            case 3:
+            case 5:
                 resultfirst = _a.sent();
-                snFirst = resultfirst.rows[0].adhrnc_sn;
+                snFirst = resultfirst.rows[0].id;
                 querysecond = {
-                    text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-                    values: [taskid, 1, '0001', userid, req.body.model, '0001', userid]
+                    text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+                    values: [taskid, 1, 1, userid, req.body.model, 1]
                 };
                 return [4 /*yield*/, client.query(querysecond)];
-            case 4:
+            case 6:
                 resultsecond = _a.sent();
-                snSecond = resultsecond.rows[0].adhrnc_sn;
+                snSecond = resultsecond.rows[0].id;
                 answer = "answer";
                 code = "code.py";
-                answerPath = path_1.default.join(String(process.env.TASK_ROOT), taskid, answer);
-                codePath = path_1.default.join(String(process.env.TASK_ROOT), taskid, code);
+                taskpath = path_1.default.join(String(process.env.TASK_ROOT), taskid.toString());
+                answerfile = void 0;
+                answerPath = path_1.default.join(taskpath, answer);
+                return [4 /*yield*/, promises_1.default.readdir(answerPath)];
+            case 7:
+                files = _a.sent();
+                if (files.length > 1) {
+                    answerfile = answerPath; // zip
+                }
+                else if (files.length == 1) {
+                    answerfile = path_1.default.join(answerPath, files[0]); // single file 
+                }
+                else {
+                    return [2 /*return*/, res.status(400).send("no answer file")];
+                }
+                codePath = path_1.default.join(taskpath, code);
                 jobPath = path_1.default.join(String(process.env.JOB_DIR), path_1.default.basename(req.file.path + ".json"));
                 jobdata = {
-                    answer: answerPath,
+                    answer: answerfile,
                     file: req.file.path,
                     code: codePath,
                     task: taskid,
@@ -404,10 +501,10 @@ app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 
                 };
                 json = JSON.stringify(jobdata);
                 return [4 /*yield*/, promises_1.default.writeFile(jobPath, json, 'utf8')];
-            case 5:
+            case 8:
                 _a.sent();
                 return [4 /*yield*/, addJob(jobdata)];
-            case 6:
+            case 9:
                 result = _a.sent();
                 if (result == 0) {
                     res.status(200).send("success");
@@ -415,26 +512,25 @@ app.post("/submit", function (req, res) { return __awaiter(void 0, void 0, void 
                 else {
                     res.status(400).send("job error");
                 }
-                return [3 /*break*/, 8];
-            case 7:
+                return [3 /*break*/, 11];
+            case 10:
                 ex_6 = _a.sent();
                 res.status(400).send(ex_6.message);
-                return [3 /*break*/, 8];
-            case 8: return [2 /*return*/];
+                return [3 /*break*/, 11];
+            case 11: return [2 /*return*/];
         }
     });
 }); });
 app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var dt, ct, submissionTime, paquery, results, taskid, userid, taskquery, resulttask, begindt, enddt, submitLmit, ret, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, ex_7;
+    var ct, paquery, results, taskid, userid, taskquery, resulttask, startdt, enddt, rules, ret, reterror, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, ex_7;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
                 _a.trys.push([0, 6, , 7]);
-                dt = new Date();
-                ct = moment_1.default();
-                submissionTime = dt.toISOString().replace("T", " ").replace("Z", "");
+                ct = moment_timezone_1.default().utc();
+                console.log("ct:" + ct.format("yyyy-MM-DD HH:mm:ss"));
                 paquery = {
-                    text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+                    text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
                     values: [req.body.key]
                 };
                 return [4 /*yield*/, client.query(paquery)];
@@ -446,7 +542,7 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
                 taskid = results.rows[0].task_id;
                 userid = results.rows[0].user_id;
                 taskquery = {
-                    text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
+                    text: 'SELECT start_date, end_date, rules FROM task WHERE id = $1',
                     values: [taskid]
                 };
                 return [4 /*yield*/, client.query(taskquery)];
@@ -455,35 +551,57 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
                 if (resulttask.rows.length == 0) {
                     return [2 /*return*/, res.status(400).send("non-existent taskid")];
                 }
-                begindt = new Date(resulttask.rows[0].begin_dttm);
-                enddt = new Date(resulttask.rows[0].end_dttm);
-                submitLmit = JSON.parse(resulttask.rows[0].submit_limit);
-                if (dt > enddt) {
+                console.log(resulttask.rows[0].start_date);
+                console.log(resulttask.rows[0].end_date);
+                startdt = resulttask.rows[0].start_date;
+                enddt = moment_timezone_1.default(resulttask.rows[0].end_date).utc();
+                console.log(startdt);
+                console.log(enddt);
+                rules = JSON.parse(resulttask.rows[0].rules);
+                if (ct > enddt) {
                     return [2 /*return*/, res.status(400).send("submission timeout")];
                 }
-                return [4 /*yield*/, checkRule(submitLmit, client, ct, taskid, userid)];
+                return [4 /*yield*/, checkRule(rules, client, ct, taskid, userid)];
             case 3:
                 ret = _a.sent();
+                if (ret > 0) {
+                    reterror = "error";
+                    switch (ret) {
+                        case 1:
+                            reterror = "You have exceeded the number of submissions in the specified period";
+                            break;
+                        case 2:
+                            reterror = "Submission interval time exceeded";
+                            break;
+                        case 3:
+                            reterror = "violation of rules";
+                            break;
+                        default:
+                            break;
+                    }
+                    return [2 /*return*/, res.status(400).send(reterror)];
+                }
                 queryfirst = {
-                    text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-                    values: [taskid, 1, '0000', userid, '0000', userid, submissionTime]
+                    text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                    values: [taskid, 1, 0, userid, 0]
                 };
                 return [4 /*yield*/, client.query(queryfirst)];
             case 4:
                 resultfirst = _a.sent();
-                snFirst = resultfirst.rows[0].adhrnc_sn;
+                snFirst = resultfirst.rows[0].id;
                 querySecond = {
-                    text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-                    values: [taskid, 1, '0001', userid, '0001', userid, submissionTime]
+                    text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+                    values: [taskid, 1, 1, userid, 1]
                 };
                 return [4 /*yield*/, client.query(querySecond)];
             case 5:
                 resultsecond = _a.sent();
-                snSecond = resultsecond.rows[0].adhrnc_sn;
+                snSecond = resultsecond.rows[0].id;
                 res.status(200).send("success");
                 return [3 /*break*/, 7];
             case 6:
                 ex_7 = _a.sent();
+                console.log("step error");
                 res.status(400).send(ex_7.message);
                 return [3 /*break*/, 7];
             case 7: return [2 /*return*/];
@@ -491,16 +609,17 @@ app.post("/submissionTime", function (req, res) { return __awaiter(void 0, void 
     });
 }); });
 app.post("/submitEx", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var paquery, results, taskid, userid, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, queryerror, resultquerypr, answer, code, answerPath, codePath, jobPath, jobdata, json, result, ex_8;
+    var paquery, results, taskid, userid, queryfirst, resultfirst, snFirst, querySecond, resultsecond, snSecond, queryerror, resultquerypr, answer, code, taskpath, answerfile, answerPath, files, codePath, jobPath, jobdata, json, result, ex_8;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 10, , 11]);
+                _a.trys.push([0, 11, , 12]);
                 return [4 /*yield*/, multerUtil_1.default(req, res)];
             case 1:
                 _a.sent();
+                console.log(req.body);
                 paquery = {
-                    text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+                    text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
                     values: [req.body.key]
                 };
                 return [4 /*yield*/, client.query(paquery)];
@@ -512,24 +631,24 @@ app.post("/submitEx", function (req, res) { return __awaiter(void 0, void 0, voi
                 taskid = results.rows[0].task_id;
                 userid = results.rows[0].user_id;
                 queryfirst = {
-                    text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
-                    values: [taskid, userid, '0000']
+                    text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+                    values: [taskid, userid, 0]
                 };
                 return [4 /*yield*/, client.query(queryfirst)];
             case 3:
                 resultfirst = _a.sent();
-                snFirst = resultfirst.rows[0].adhrnc_sn;
+                snFirst = resultfirst.rows[0].id;
                 querySecond = {
-                    text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
-                    values: [taskid, userid, '0001']
+                    text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+                    values: [taskid, userid, 1]
                 };
                 return [4 /*yield*/, client.query(querySecond)];
             case 4:
                 resultsecond = _a.sent();
-                snSecond = resultsecond.rows[0].adhrnc_sn;
+                snSecond = resultsecond.rows[0].id;
                 if (!(req.body.error != "none")) return [3 /*break*/, 6];
                 queryerror = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, ERR_MESSAGE = $2 WHERE ADHRNC_SN = $3',
+                    text: 'UPDATE task_submission SET score = $1, error = $2 WHERE id = $3',
                     values: [null, req.body.error, snFirst]
                 };
                 return [4 /*yield*/, client.query(queryerror)];
@@ -542,11 +661,25 @@ app.post("/submitEx", function (req, res) { return __awaiter(void 0, void 0, voi
                 }
                 answer = "answer";
                 code = "code.py";
-                answerPath = path_1.default.join(String(process.env.TASK_ROOT), taskid, answer);
-                codePath = path_1.default.join(String(process.env.TASK_ROOT), taskid, code);
+                taskpath = path_1.default.join(String(process.env.TASK_ROOT), taskid.toString());
+                answerfile = void 0;
+                answerPath = path_1.default.join(taskpath, answer);
+                return [4 /*yield*/, promises_1.default.readdir(answerPath)];
+            case 7:
+                files = _a.sent();
+                if (files.length > 1) {
+                    answerfile = answerPath; // zip
+                }
+                else if (files.length == 1) {
+                    answerfile = path_1.default.join(answerPath, files[0]); // single file 
+                }
+                else {
+                    return [2 /*return*/, res.status(400).send("no answer file")];
+                }
+                codePath = path_1.default.join(taskpath, code);
                 jobPath = path_1.default.join(String(process.env.JOB_DIR), path_1.default.basename(req.file.path + ".json"));
                 jobdata = {
-                    answer: answerPath,
+                    answer: answerfile,
                     file: req.file.path,
                     code: codePath,
                     task: taskid,
@@ -556,11 +689,11 @@ app.post("/submitEx", function (req, res) { return __awaiter(void 0, void 0, voi
                 };
                 json = JSON.stringify(jobdata);
                 return [4 /*yield*/, promises_1.default.writeFile(jobPath, json, 'utf8')];
-            case 7:
+            case 8:
                 _a.sent();
                 console.log(jobdata);
                 return [4 /*yield*/, addJob(jobdata)];
-            case 8:
+            case 9:
                 result = _a.sent();
                 if (result == 0) {
                     res.status(200).send("success");
@@ -568,35 +701,49 @@ app.post("/submitEx", function (req, res) { return __awaiter(void 0, void 0, voi
                 else {
                     res.status(400).send("job error");
                 }
-                _a.label = 9;
-            case 9: return [3 /*break*/, 11];
-            case 10:
+                _a.label = 10;
+            case 10: return [3 /*break*/, 12];
+            case 11:
                 ex_8 = _a.sent();
                 res.status(400).send(ex_8.message);
-                return [3 /*break*/, 11];
-            case 11: return [2 /*return*/];
+                return [3 /*break*/, 12];
+            case 12: return [2 /*return*/];
         }
     });
 }); });
 app.post("/test", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var answer, code, answerPath, codePath, jobdata, result, ex_9;
+    var answer, code, taskpath, answerfile, answerPath, files, codePath, jobdata, result, ex_9;
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0:
-                _a.trys.push([0, 2, , 3]);
+                _a.trys.push([0, 3, , 4]);
                 answer = "answer";
                 code = "code.py";
-                answerPath = path_1.default.join(String(process.env.TASK_ROOT), String(req.body.taskId), answer);
-                codePath = path_1.default.join(String(process.env.TASK_ROOT), String(req.body.taskId), code);
+                taskpath = path_1.default.join(String(process.env.TASK_ROOT), req.body.taskId.toString());
+                answerfile = void 0;
+                answerPath = path_1.default.join(taskpath, answer);
+                return [4 /*yield*/, promises_1.default.readdir(answerPath)];
+            case 1:
+                files = _a.sent();
+                if (files.length > 1) {
+                    answerfile = answerPath; // zip
+                }
+                else if (files.length == 1) {
+                    answerfile = path_1.default.join(answerPath, files[0]); // single file 
+                }
+                else {
+                    return [2 /*return*/, res.status(400).send("no answer file")];
+                }
+                codePath = path_1.default.join(taskpath, code);
                 jobdata = {
-                    answer: answerPath,
+                    answer: answerfile,
                     code: codePath,
                     file: answerPath,
                     task: req.body.taskId,
                     snFirst: "code_test",
                 };
                 return [4 /*yield*/, addJob(jobdata)];
-            case 1:
+            case 2:
                 result = _a.sent();
                 if (result == 0) {
                     res.status(200).send("success");
@@ -604,12 +751,12 @@ app.post("/test", function (req, res) { return __awaiter(void 0, void 0, void 0,
                 else {
                     res.status(400).send("job error");
                 }
-                return [3 /*break*/, 3];
-            case 2:
+                return [3 /*break*/, 4];
+            case 3:
                 ex_9 = _a.sent();
-                res.status(400).send(ex_9.mesage);
-                return [3 /*break*/, 3];
-            case 3: return [2 /*return*/];
+                res.status(400).send(ex_9.message);
+                return [3 /*break*/, 4];
+            case 4: return [2 /*return*/];
         }
     });
 }); });

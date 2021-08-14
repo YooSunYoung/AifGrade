@@ -12,7 +12,8 @@ import upload from "./multerUtilUpload";
 import Queue from 'bull'; 
 import { doesNotMatch } from "assert/strict";
 import os from 'os';
-import moment from 'moment';
+import moment from "moment-timezone";
+//import moment from 'moment';
 
 const extractzip = require('extract-zip');
 const spawn = require('await-spawn');
@@ -48,7 +49,7 @@ gqueue.process(async(job: any, done) => {
 
     if( String(job.data.snFirst) == "code_test") {
         try{
-            let targetfile: string = path.join(String(job.data.file), 'answer.csv');
+            let targetfile: string = job.data.answer;//path.join(String(job.data.file), 'answer.csv');
             returnResult = await spawn(pythonexe, [job.data.code, job.data.answer, targetfile]);
         } catch(ex) {
             errMessage = ex.stderr.toString();
@@ -77,16 +78,16 @@ gqueue.process(async(job: any, done) => {
             if( errMessage == '')
             {
                 const query = {
-                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
-                    values: ["success", String(pbScore), parseInt(job.data.task)]
+                    text: 'UPDATE code_test_result SET status = $1, error = $2 WHERE task_id = $3',
+                    values: [0, String(pbScore), parseInt(job.data.task)]
                 };
                 const resultquery = await client.query(query);
             } else {
                 let newpath: string = path.join(String(process.env.ERROR_DIR), path.basename(job.data.jobPath));
                 await fs.rename(job.data.jobPath, newpath);
                 const queryerror = {
-                    text: 'UPDATE T_CALCULATE_SET SET VERIFY_STATUS = $1, VERIFY_ERR_MSG = $2 WHERE TASK_ID = $3',
-                    values: ['fail', errMessage, parseInt(job.data.task)]
+                    text: 'UPDATE code_test_result SET status = $1, error = $2 WHERE task_id = $3',
+                    values: [1, errMessage, parseInt(job.data.task)]
                 };
                 const resultquerypr = await client.query(queryerror);
             }
@@ -127,14 +128,14 @@ gqueue.process(async(job: any, done) => {
             if( errMessage == '')
             {
                 const query = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [pbScore, path.basename(job.data.file), errMessage, String(job.data.snFirst)]
+                    text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                    values: [pbScore, path.basename(job.data.file), errMessage, Number(job.data.snFirst)]
                 };
                 const resultquery = await client.query(query);
                 if( resultfilter.length > 1) {
                     const querypr = {
-                        text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                        values: [prScore, path.basename(job.data.file), errMessage, String(job.data.snSecond)]
+                        text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                        values: [prScore, path.basename(job.data.file), errMessage, Number(job.data.snSecond)]
                     };
                     const resultquerypr = await client.query(querypr);
                 }
@@ -147,8 +148,8 @@ gqueue.process(async(job: any, done) => {
                 let newpath: string = path.join(String(process.env.ERROR_DIR), path.basename(job.data.jobPath));
                 await fs.rename(job.data.jobPath, newpath);
                 const queryerror = {
-                    text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, FILE_NM = $2, ERR_MESSAGE = $3 WHERE ADHRNC_SN = $4',
-                    values: [null, path.basename(job.data.file), errMessage, String(job.data.snFirst)]
+                    text: 'UPDATE task_submission SET score = $1, file = $2, error = $3 WHERE id = $4',
+                    values: [null, path.basename(job.data.file), errMessage, Number(job.data.snFirst)]
                 };
                 const resultquerypr = await client.query(queryerror);
             }
@@ -169,59 +170,67 @@ gqueue.on('failed', (job, result) => {
     console.log(`Job ${job.id} failed with result ${result}`);
 })
 
-const checkDayLimit = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
-    let localstr :string = ct.format("yyyy-MM-DD") + " 00:00:00";
+const checkDayLimit = async (rules: any, dbc:Client, ct: moment.Moment, taskid: number, userid: string) => {
+    //console.log("ct:" + ct.format('yyyy-MM-DD HH:mm:ss'));
+    let localct = ct.clone().tz("Asia/Seoul");
+    console.log("localct:" + localct.format("yyyy-MM-DD HH:mm:ss"))
+    let localstr :string = localct.format("yyyy-MM-DD") + " 00:00:00";
+
+    console.log("localstr:" + localstr)
     let st = moment(localstr, "yyyy-MM-DD HH:mm:ss");
-    let et = moment(st).clone().add(Number(limit.daylimit.day), 'days');
+    let et = moment(st).clone().add(Number(rules.daylimit.day), 'days');
 
     let utcst = st.utc();
     let utcet = et.utc();
 
     let utcststr = utcst.format('yyyy-MM-DD HH:mm:ss');
     let utcetstr = utcet.format('yyyy-MM-DD HH:mm:ss');
+
+    console.log("utcststr:" + utcststr);
+    console.log("utcetstr:" + utcetstr);
     const dayquery = {
-        text: "SELECT count(*) FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and result_sbmisn_mthd_code = '0000' and SCRE is not null and err_message = '' and regist_dttm BETWEEN $3 AND $4",
+        text: "SELECT count(*) FROM task_submission where task_id = $1 and user_id = $2 and method_code = 0 and score is not null and error = '' and registration_date BETWEEN $3 AND $4",
         values: [taskid, userid, utcststr, utcetstr]
     };
     const results = await client.query(dayquery);
-    if( Number(results.rows[0].count) > Number(limit.daylimit.count)){
+    if( Number(results.rows[0].count) > Number(rules.daylimit.count)){
         return 1;
     }
     return 0;
 };
 
-const checkResubmit = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
+const checkResubmit = async (rules: any, dbc:Client, ct: moment.Moment, taskid: number, userid: string) => {
     const lastquery = {
-        text: "SELECT regist_dttm FROM t_lap_adhrnc where task_id = $1 and user_id = $2 and result_sbmisn_mthd_code = '0000' and SCRE is not null and err_message = '' ORDER BY adhrnc_sn DESC LIMIT 1",
+        text: "SELECT registration_date FROM task_submission where task_id = $1 and user_id = $2 and method_code = 0 and score is not null and error = '' ORDER BY id DESC LIMIT 1",
         values: [taskid, userid]
     };
     const lastresults = await client.query(lastquery);
-    let registstr: string = lastresults.rows[0].regist_dttm;
-    let refdt = moment(registstr, "yyyy-MM-DD HH:mm:ss");
-    let nowutcdt = moment(ct.utc().format("yyyy-MM-DD HH:mm:ss"), "yyyy-MM-DD HH:mm:ss");
-    let diff = moment.duration(nowutcdt.diff(refdt)).asMinutes();
-    if( diff < Number(limit.resubmit.min)){
+    let refdt = moment(lastresults.rows[0].registration_date).utc();
+    console.log("ct:" + ct.format("yyyy-MM-DD HH:mm:ss"));
+    console.log("refdt:" + refdt.format("yyyy-MM-DD HH:mm:ss"));
+    let diff = moment.duration(ct.diff(refdt)).asMinutes();
+    if( diff < Number(rules.resubmit.min)){
         return 2;
     }
     return 0;
 };
 
-const checkRule = async (limit: any, dbc:Client, ct: moment.Moment, taskid: string, userid: string) => {
-    let localtime = ct;
+const checkRule = async (rules: any, dbc:Client, ct: moment.Moment, taskid: number, userid: string) => {
+    //let localtime = ct;
     let ret: number = 0;
-    switch( limit.type) {
+    switch( rules.type) {
         case 0:
             break;
         case 1: 
-            ret = await checkDayLimit(limit, dbc, localtime, taskid, userid);
+            ret = await checkDayLimit(rules, dbc, ct, taskid, userid);
             break;
         case 2: 
-            ret = await checkResubmit(limit, dbc, localtime, taskid, userid);
+            ret = await checkResubmit(rules, dbc, ct, taskid, userid);
             break;
         case 3: 
-            ret = await checkDayLimit(limit, dbc, localtime, taskid, userid);
+            ret = await checkDayLimit(rules, dbc, ct, taskid, userid);
             if( ret > 0) return ret;
-            ret = await checkResubmit(limit, dbc, localtime, taskid, userid);
+            ret = await checkResubmit(rules, dbc, ct, taskid, userid);
             break;
         default:
             break;
@@ -249,7 +258,7 @@ app.post("/grading", async (req, res) => {
         console.log(req.file);
 
         const paquery = {
-            text: 'SELECT task_id FROM t_partcpt_agre WHERE key_value = $1',
+            text: 'SELECT task_id FROM task_user WHERE key = $1',
             values: [req.body.key]
         };
         const results = await client.query(paquery);
@@ -257,15 +266,27 @@ app.post("/grading", async (req, res) => {
             return res.status(400).send("non-existent key");
         }
 
-        let taskid: string = results.rows[0].task_id;
+        let taskid: number = results.rows[0].task_id;
         let answer: string = "answer";
         let code: string = "code.py";
         
-        let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
-        let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+        let taskpath: string = path.join(String(process.env.TASK_ROOT), taskid.toString());
+        let answerfile:string;
+        let answerPath: string = path.join(taskpath, answer);
+        let files = await fs.readdir(answerPath);
+        if( files.length > 1){
+            answerfile = answerPath; // zip
+        }else if(files.length == 1){
+            answerfile = path.join(answerPath,files[0]); // single file 
+        }
+        else{
+            return res.status(400).send("no answer file");
+        }
+
+        let codePath: string = path.join(taskpath, code);
         let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
         let jobdata = {
-            answer : answerPath,
+            answer : answerfile,
             file : req.file.path,
             code : codePath,
             task : taskid,
@@ -295,20 +316,21 @@ app.post("/submit", async (req, res) => {
             return res.status(400).send("file upload error");
         }
         const paquery = {
-            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
             values: [req.body.key]
         };
         const results = await client.query(paquery);
         if( results.rows.length == 0){
             return res.status(400).send("non-existent key");
         }
-        let dt = new Date();
-        let ct = moment(dt);
-        let taskid: string = results.rows[0].task_id;
+        //let dt = new Date();
+        //let ct = moment(dt);
+        let ct = moment().utc();
+        let taskid: number = results.rows[0].task_id;
         let userid: string = results.rows[0].user_id;
 
         const taskquery = {
-            text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
+            text: 'SELECT start_date, end_date, rules FROM task WHERE id = $1',
             values: [taskid]
         };
         const resulttask = await client.query(taskquery);
@@ -316,42 +338,54 @@ app.post("/submit", async (req, res) => {
             return res.status(400).send("non-existent taskid");
         }
 
-        let begindt: Date = new Date(resulttask.rows[0].begin_dttm);
-        let enddt: Date = new Date(resulttask.rows[0].end_dttm);
-        let submitLmit: any = JSON.parse(resulttask.rows[0].submit_limit);
-        if( dt > enddt){
+        let startdt: Date = resulttask.rows[0].start_date;
+        //let enddt: Date = resulttask.rows[0].end_date;
+        let enddt = moment(resulttask.rows[0].end_date).utc();
+        let rules: any = JSON.parse(resulttask.rows[0].rules);
+        if( ct > enddt){
             return res.status(400).send("submission timeout");
         }
 
-        let ret: number = await checkRule(submitLmit, client, ct, taskid, userid);
+        let ret: number = await checkRule(rules, client, ct, taskid, userid);
         if( ret > 0) {
             return res.status(400).send("violation of the rules:" + ret);
         }
         
         const queryfirst = {
-            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-            values: [taskid, 1, '0000', userid, req.body.model, '0000', userid]
+            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            values: [taskid, 1, 0, userid, req.body.model, 0]
         };
 
         const resultfirst = await client.query(queryfirst);
-        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+        let snFirst: number = resultfirst.rows[0].id;
 
         const querysecond = {
-            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, MODEL_NM, RESULT_SBMISN_MTHD_CODE, REGISTER_ID) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-            values: [taskid, 1, '0001', userid, req.body.model, '0001', userid]
+            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            values: [taskid, 1, 1, userid, req.body.model, 1]
         };
 
         const resultsecond = await client.query(querysecond);
-        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+        let snSecond: number = resultsecond.rows[0].id;
 
         let answer: string = "answer";
         let code: string = "code.py";
-        
-        let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
-        let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+        let taskpath: string = path.join(String(process.env.TASK_ROOT), taskid.toString());
+        let answerfile:string;
+        let answerPath: string = path.join(taskpath, answer);
+        let files = await fs.readdir(answerPath);
+        if( files.length > 1){
+            answerfile = answerPath; // zip
+        }else if(files.length == 1){
+            answerfile = path.join(answerPath,files[0]); // single file 
+        }
+        else{
+            return res.status(400).send("no answer file");
+        }
+
+        let codePath: string = path.join(taskpath, code);
         let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
         let jobdata = {
-            answer : answerPath,
+            answer : answerfile,
             file : req.file.path,
             code : codePath,
             task : taskid,
@@ -374,37 +408,41 @@ app.post("/submit", async (req, res) => {
 
 app.post("/submissionTime", async (req, res) => {
     try{
-        let dt = new Date();
-        let ct = moment(dt);
-        let submissionTime = dt.toISOString().replace("T", " ").replace("Z", "");
+        let ct = moment().utc();
+        console.log("ct:" + ct.format("yyyy-MM-DD HH:mm:ss"));
         const paquery = {
-            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
             values: [req.body.key]
         };
         const results = await client.query(paquery);
         if( results.rows.length == 0){
             return res.status(400).send("non-existent key");
         }
-        let taskid: string = results.rows[0].task_id;
+        let taskid: number = results.rows[0].task_id;
         let userid: string = results.rows[0].user_id;
 
         const taskquery = {
-            text: 'SELECT begin_dttm, end_dttm, submit_limit FROM t_task WHERE task_id = $1',
+            text: 'SELECT start_date, end_date, rules FROM task WHERE id = $1',
             values: [taskid]
         };
         const resulttask = await client.query(taskquery);
         if( resulttask.rows.length == 0){
             return res.status(400).send("non-existent taskid");
         }
+        console.log(resulttask.rows[0].start_date);
+        console.log(resulttask.rows[0].end_date);
 
-        let begindt: Date = new Date(resulttask.rows[0].begin_dttm);
-        let enddt: Date = new Date(resulttask.rows[0].end_dttm);
-        let submitLmit: any = JSON.parse(resulttask.rows[0].submit_limit);
-        if( dt > enddt){
+        let startdt: Date = resulttask.rows[0].start_date;
+        let enddt = moment(resulttask.rows[0].end_date).utc();
+
+        console.log(startdt);
+        console.log(enddt);
+        let rules: any = JSON.parse(resulttask.rows[0].rules);
+        if( ct > enddt){
             return res.status(400).send("submission timeout");
         }
 
-        let ret: number = await checkRule(submitLmit, client, ct, taskid, userid);
+        let ret: number = await checkRule(rules, client, ct, taskid, userid);
         if( ret > 0) {
             let reterror: string = "error";
             switch( ret ){
@@ -425,20 +463,20 @@ app.post("/submissionTime", async (req, res) => {
         }
 
         const queryfirst = {
-            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-            values: [taskid, 1, '0000', userid, '0000', userid, submissionTime]
+            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            values: [taskid, 1, 0, userid, 0]
         };
 
         const resultfirst = await client.query(queryfirst);
-        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+        let snFirst: number = resultfirst.rows[0].id;
 
         const querySecond = {
-            text: 'INSERT INTO T_LAP_ADHRNC (TASK_ID, LAP_SN, ADHRNC_SE_CODE, USER_ID, RESULT_SBMISN_MTHD_CODE, REGISTER_ID, REGIST_DTTM) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING adhrnc_sn',
-            values: [taskid, 1, '0001', userid, '0001', userid, submissionTime]
+            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            values: [taskid, 1,  1, userid, 1]
         };
 
         const resultsecond = await client.query(querySecond);
-        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+        let snSecond: number = resultsecond.rows[0].id;
 
         res.status(200).send("success");
     }catch(ex) {
@@ -454,37 +492,35 @@ app.post("/submitEx", async (req, res) => {
         console.log(req.body);
                 
         const paquery = {
-            text: 'SELECT task_id, user_id FROM t_partcpt_agre WHERE key_value = $1',
+            text: 'SELECT task_id, user_id FROM task_user WHERE key = $1',
             values: [req.body.key]
         };
         const results = await client.query(paquery);
         if( results.rows.length == 0){
             return res.status(400).send("non-existent key");
         }
-        let taskid: string = results.rows[0].task_id;
+        let taskid: number = results.rows[0].task_id;
         let userid: string = results.rows[0].user_id;
 
         const queryfirst = {
-            text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
-            values: [taskid, userid, '0000']
+            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+            values: [taskid, userid, 0]
         };
 
         const resultfirst = await client.query(queryfirst);
-        let snFirst: number = resultfirst.rows[0].adhrnc_sn;
+        let snFirst: number = resultfirst.rows[0].id;
 
         const querySecond = {
-            text: 'SELECT adhrnc_sn FROM t_lap_adhrnc WHERE task_id = $1 and user_id = $2 and adhrnc_se_code = $3 ORDER BY adhrnc_sn DESC LIMIT 1',
-            values: [taskid, userid, '0001']
+            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+            values: [taskid, userid, 1]
         };
 
         const resultsecond = await client.query(querySecond);
-        let snSecond: number = resultsecond.rows[0].adhrnc_sn;
+        let snSecond: number = resultsecond.rows[0].id;
    
         if( req.body.error != "none") {
-            //let errojson : any = { type: 1, message : req.body.error};
-            //let errjosnstr = JSON.stringify(errojson);
             const queryerror = {
-                text: 'UPDATE T_LAP_ADHRNC SET SCRE = $1, ERR_MESSAGE = $2 WHERE ADHRNC_SN = $3',
+                text: 'UPDATE task_submission SET score = $1, error = $2 WHERE id = $3',
                 values: [null, req.body.error, snFirst]
             };
             const resultquerypr = await client.query(queryerror);
@@ -494,14 +530,26 @@ app.post("/submitEx", async (req, res) => {
             if (req.file == undefined) {
                 return res.status(400).send("file upload error");
             }
+            
             let answer: string = "answer";
             let code: string = "code.py";
-            
-            let answerPath: string = path.join(String(process.env.TASK_ROOT), taskid, answer);
-            let codePath: string = path.join(String(process.env.TASK_ROOT), taskid, code);
+            let taskpath: string = path.join(String(process.env.TASK_ROOT), taskid.toString());
+            let answerfile:string;
+            let answerPath: string = path.join(taskpath, answer);
+            let files = await fs.readdir(answerPath);
+            if( files.length > 1){
+                answerfile = answerPath; // zip
+            }else if(files.length == 1){
+                answerfile = path.join(answerPath,files[0]); // single file 
+            }
+            else{
+                return res.status(400).send("no answer file");
+            }
+
+            let codePath: string = path.join(taskpath, code);
             let jobPath: string = path.join(String(process.env.JOB_DIR), path.basename(req.file.path + ".json"));
             let jobdata = {
-                answer : answerPath,
+                answer : answerfile,
                 file : req.file.path,
                 code : codePath,
                 task : taskid,
@@ -529,11 +577,22 @@ app.post("/test", async (req, res) => {
     try{
         let answer: string = "answer";
         let code: string = "code.py";
-        
-        let answerPath: string = path.join(String(process.env.TASK_ROOT), String(req.body.taskId), answer);
-        let codePath: string = path.join(String(process.env.TASK_ROOT), String(req.body.taskId), code);
+        let taskpath: string = path.join(String(process.env.TASK_ROOT), req.body.taskId.toString());
+        let answerfile:string;
+        let answerPath: string = path.join(taskpath, answer);
+        let files = await fs.readdir(answerPath);
+        if( files.length > 1){
+            answerfile = answerPath; // zip
+        }else if(files.length == 1){
+            answerfile = path.join(answerPath,files[0]); // single file 
+        }
+        else{
+            return res.status(400).send("no answer file");
+        }
+
+        let codePath: string = path.join(taskpath, code);
         let jobdata = {
-            answer : answerPath,
+            answer : answerfile,
             code : codePath,
             file : answerPath,
             task : req.body.taskId,
