@@ -352,16 +352,16 @@ app.post("/submit", async (req, res) => {
         }
         
         const queryfirst = {
-            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-            values: [taskid, 1, 0, userid, req.body.model, 0]
+            text: 'INSERT INTO task_submission (task_id, lap, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            values: [taskid, 1, userid, req.body.model, 0]
         };
 
         const resultfirst = await client.query(queryfirst);
         let snFirst: number = resultfirst.rows[0].id;
 
         const querysecond = {
-            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-            values: [taskid, 1, 1, userid, req.body.model, 1]
+            text: 'INSERT INTO task_submission (task_id, lap, user_id, model_name, method_code) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+            values: [taskid, 1, userid, req.body.model, 1]
         };
 
         const resultsecond = await client.query(querysecond);
@@ -463,16 +463,16 @@ app.post("/submissionTime", async (req, res) => {
         }
 
         const queryfirst = {
-            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-            values: [taskid, 1, 0, userid, 0]
+            text: 'INSERT INTO task_submission (task_id, lap, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            values: [taskid, 1, userid, 0]
         };
 
         const resultfirst = await client.query(queryfirst);
         let snFirst: number = resultfirst.rows[0].id;
 
         const querySecond = {
-            text: 'INSERT INTO task_submission (task_id, lap, se_code, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
-            values: [taskid, 1,  1, userid, 1]
+            text: 'INSERT INTO task_submission (task_id, lap, user_id, method_code) VALUES ($1, $2, $3, $4, $5) RETURNING id',
+            values: [taskid, 1,  userid, 1]
         };
 
         const resultsecond = await client.query(querySecond);
@@ -503,7 +503,7 @@ app.post("/submitEx", async (req, res) => {
         let userid: string = results.rows[0].user_id;
 
         const queryfirst = {
-            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and method_code = $3 ORDER BY id DESC LIMIT 1',
             values: [taskid, userid, 0]
         };
 
@@ -511,7 +511,7 @@ app.post("/submitEx", async (req, res) => {
         let snFirst: number = resultfirst.rows[0].id;
 
         const querySecond = {
-            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and se_code = $3 ORDER BY id DESC LIMIT 1',
+            text: 'SELECT id FROM task_submission WHERE task_id = $1 and user_id = $2 and method_code = $3 ORDER BY id DESC LIMIT 1',
             values: [taskid, userid, 1]
         };
 
